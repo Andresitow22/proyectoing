@@ -1,6 +1,7 @@
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from users.models import User
 from users.api.serializers import UserSerializer
 from django.contrib.auth.hashers import make_password
@@ -14,7 +15,7 @@ class UserViewSet(ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         data = request.data.copy()
-        if 'password' in data:
+        if isinstance(data, dict) and data.get('password'):
             data['password'] = make_password(data['password'])
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
@@ -23,19 +24,29 @@ class UserViewSet(ModelViewSet):
 
 
     def update(self, request, *args, **kwargs):
-        if not kwargs.get('partial') and 'password' in request.data:
-            request.data['password'] = make_password(request.data['password'])
-        return super().update(request, *args, **kwargs)
+        data = request.data.copy()
+        if isinstance(data, dict) and data.get('password'):
+            data['password'] = make_password(data['password'])
+        return self.guardar(data, partial=False)
 
     def partial_update(self, request, *args, **kwargs):
-        password = request.data.get('password')
+        data = request.data.copy()
+        password = data.get('password') if isinstance(data, dict) else None
         if password:
-            request.data['password'] = make_password(password)
-        elif 'password' in request.data:
-            request.data['password'] = self.get_object().password
-        return super().partial_update(request, *args, **kwargs)
+            data['password'] = make_password(password)
+        elif isinstance(data, dict) and 'password' in data:
+            data['password'] = self.get_object().password
+        return self.guardar(data, partial=True)
+
+    def guardar(self, data, partial):
+        serializer = self.get_serializer(self.get_object(), data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
 
 class getPerfilView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
